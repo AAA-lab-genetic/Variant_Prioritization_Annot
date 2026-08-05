@@ -1,16 +1,24 @@
-# Variant Pipeline (Step 1: Variant Annotation, Step 2: Individual-Level Carrier Analysis)
+# Variant file annotation preparation pipeline (Step 1: Variant Annotation, Step 2: Individual-Level Carrier Analysis)
 
-Two-stage pipeline for gene-level variant work:
+Two-step pipeline for gene-level variant work:
 
 - **Step 1** (`variant_annotation_pipeline.py`) — Two stages variant-level annotation:
   ANNOVAR + VEP (with CADD), optionally merged with a Franklin export. One
   row per variant.
+
+Output example:
+
+```Folder XXX```
+
 - **Step 2** (`individual_level_pipeline.py`) — individual-level carrier
   analysis built on top of Step 1's output: who carries which variant,
   per-ancestry carrier frequencies, double-het flagging, monogenic report
   merging. One row per carrier (individual x variant), split by ancestry.
 
-Both use **polars** for table processing.
+Output example:
+
+```Folder XXX```
+
 
 ---
 
@@ -134,11 +142,19 @@ variants above it (use `--maf-max` alone to keep only rare variants).
 optional — omit any of them to fall back to `--work-dir` and gene-based
 default names.
 
+
+### Franklin file option `--franklin-file`
+
+This file can be obtained by running each variants using automate Franklin web crawl that we have developed (https://github.com/AAA-lab-genetic/frank_claw)
+
+
+
 ### Tool paths (`--bcftools-path` etc.)
 
 All four tool-path flags (`--plink-path`, `--bcftools-path`,
 `--bgzip-path`, `--tabix-path`) default to the bare command name resolved
 via `PATH`, and are optional. 
+
 
 ```
 [tools path default]
@@ -157,12 +173,10 @@ via `PATH`, and are optional.
 
 # Step 2 — Individual-Level Carrier/Genotype Pipeline
 
-Second stage, built on top of Step 1's variant-level annotation table.
-This stage works at the **individual/genotype level**: who carries which
+Step 2 is dependent on Step 1, where
+this step works at the **individual/genotype level**: who carries which
 variant, per-ancestry carrier frequencies, double-het flagging, and
-monogenic report merging. Implemented as composable functions in
-`individual_level_pipeline.py`, plus an orchestrator
-(`run_individual_level_pipeline()`) and a CLI that chains them.
+monogenic report merging.
 
 
 ## Step 2 pipeline stages
@@ -369,4 +383,32 @@ slice/index — so it stays correct regardless of how many metadata columns
 your master file has.
 
 
-# Side Notes
+# Pipeline Tool Versions
+
+| Tool | Version | 
+|---|---|
+| plink2 | v2.0.0-a.6.9LM (29 Jan 2025) | 
+| plink1.9 | v1.90b6.9 (4 Mar 2019) |
+| bcftools | 1.24 | 
+| bgzip (htslib) | 1.23.1 |
+| tabix (htslib) | 1.23.1 | 
+| perl | 5.32.1 |
+| VEP (ensembl-vep) | 116.0 |
+| ANNOVAR (table_annovar.pl) | `$Date: 2022-08-02$` http://www.openbioinformatics.org/annovar/download/0wgxR2rIVP/annovar.latest.tar.gz | 
+| python3 | 3.12.13 | 
+| polars | 1.43.2 | 
+
+| ANNOVAR annotation DB |
+|---|
+| refGene |
+| cytoBand |
+| exac03 |
+| avsnp147|
+| dbnsfp47a |
+| clinvar_20250721 | 
+| gnomad41_genome | 
+
+| VEP annotation DB | link/source |
+|---|--- |
+| HGVS | ftp://ftp.ensembl.org/pub/release-112/fasta/homo_sapiens/dna/Homo_sapiens.GRCh38.dna.primary_assembly.fa.gz |
+| CADD | https://github.com/Ensembl/VEP_plugins/blob/release/116/CADD.pm |
