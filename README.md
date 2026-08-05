@@ -298,89 +298,15 @@ options:
                         is applied otherwise).
 ```
 
-Omit `--compute-ancestry-maf`/`--compute-double-het`/`--add-monogenic` (or
-their Python equivalents) to skip those stages entirely. If you skip
+- Omit `--compute-ancestry-maf`/`--compute-double-het`/`--add-monogenic` (or
+their Python equivalents) to skip those stages entirely.
+- If you skip
 `--compute-ancestry-maf`, the double-het/monogenic steps run against your
 original `annotation_file` instead of the enriched variant-info file —
 make sure it has whatever columns `find_double_het()` needs
 (`gnomad41_genome_fafmax_faf95_max`, `Franklin` by default; both are
 overridable via `--double-het-freq-col`/`--double-het-pathogenicity-col`).
 
-## Step 2 output naming
-
-- `work_dir` — where every per-ancestry **intermediate** file is written
-  (the `.raw`, the per-label splits, the per-label carrier/doublehet
-  files before the final combine).
-- `out_dir` — where the two **final** outputs go. Defaults to `work_dir`
-  if not given.
-- `out_name` — base filename for the final combined carrier file.
-  Defaults to `{gene}_carrier_info_combined`.
-- `variant_out_name` — base filename for the final variant info file
-  (only produced if `compute_ancestry_maf=True`). Defaults to
-  `{gene}_variant_info`.
-  
-**Core path (always runs):**
-
-1. `plink19_recode_raw()` — PLINK1.9 `--recode A` on the input plink1
-   fileset → wide 0/1/2 (missing=NA) genotype `.raw`. Deliberately
-   PLINK1.9, not plink2 — plink2's `--export A` output format differs.
-2. `build_master_metadata()` — read a master/keyfile CSV, keep only the
-   columns you specify, rename its ID column(s) to `FID`/`IID`,
-   optionally filter rows (e.g. `wgs == 1`).
-3. `merge_raw_with_master()` — left-join the wide `.raw` onto the master
-   metadata on `IID`.
-4. `split_by_label()` — split the merged wide table into one file per
-   ancestry/label value.
-5. `carrier_long_format()` — per label: unpivot to long format, keep only
-   carriers (`Genotype > 0`), strip the trailing allele suffix off
-   variant names, and join in the Step 1 variant annotation table.
-
-**Optional stages** (each toggled independently — matches "it also has an
-option to..." from the original workflow):
-
-6. `run_ancestry_case_maf()` — PLINK1.9 `--filter-cases --recode A` on a
-   per-ancestry plink fileset, parallelized across gene x label (mirrors
-   the original bash `command & ... wait` fan-out).
-7. `summarize_variant_counts()` — turn a `--recode A` `.raw` into
-   per-variant `N_OBS`/`MISSING`/`HET`/`HOM_ALT`/`ALT_AF`/`MAF` for one
-   ancestry.
-8. `merge_annotation_with_counts()` — left-join the Step 1 annotation
-   table with every ancestry's count file on `Variants`, producing **one**
-   combined variant-level reference table (annotation + every ancestry's
-   MAF, one row per variant). This is the file your original workflow
-   referred to as `...multianno...counts.txt` — it's now something this
-   pipeline produces itself, not an external file you have to build by hand.
-9. `find_double_het()` — flag individuals carrying more than one
-   qualifying (rare + not benign) variant.
-10. `add_monogenic_data()` — left-join a GP2-style monogenic variant
-    report onto the carrier table.
-11. `combine_carrier_files()` — concatenate all per-ancestry carrier files
-    into one final carrier-info file.
-
-Stages 8 and 11 are the two final outputs described as "one carrier info
-file and variant info file merged as one" — one variant-level table, one
-carrier-level table.
-
-## Master file flexibility
-
-Different projects have different master/keyfile layouts, so nothing here
-is hardcoded to one column set:
-
-- `keep_cols` — pass whichever columns exist in *your* master file, using
-  its own column names.
-- `id_rename` — maps your ID column(s) to the standardized names the rest
-  of the pipeline expects (e.g. `{"GP2ID": "IID"}`).
-- `filter_col`/`filter_value` — optional row filter (e.g. `wgs == 1`).
-  `filter_value` is coerced to match the column's actual dtype before
-  comparing, so `1`, `"1"`, and `"1.0"` all work correctly against a
-  numeric column — this matters because CLI arguments always arrive as
-  strings, and master files often store flag columns as floats.
-
-The metadata column list used downstream (`meta_cols`, needed to know
-which columns are "not a variant" when unpivoting) is computed from
-`merge_raw_with_master()`'s actual output columns — not a positional
-slice/index — so it stays correct regardless of how many metadata columns
-your master file has.
 
 
 # Pipeline Tool Versions
