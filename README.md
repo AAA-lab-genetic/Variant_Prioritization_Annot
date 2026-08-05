@@ -2,7 +2,7 @@
 
 Two-stage pipeline for gene-level variant work:
 
-- **Step 1** (`variant_annotation_pipeline.py`) — variant-level annotation:
+- **Step 1** (`variant_annotation_pipeline.py`) — Two stages variant-level annotation:
   ANNOVAR + VEP (with CADD), optionally merged with a Franklin export. One
   row per variant.
 - **Step 2** (`individual_level_pipeline.py`) — individual-level carrier
@@ -53,6 +53,79 @@ python variant_annotation_pipeline.py \
   --tabix-path /opt/conda/envs/vep_env/bin/tabix
 ```
 
+```
+usage: vars_annot.py [-h] --input-file INPUT_FILE --file-type
+                     {plink1,plink2,vcf} --gene GENE --work-dir WORK_DIR
+                     [--chrom CHROM] [--start START] [--end END]
+                     [--maf-min MAF_MIN] [--maf-max MAF_MAX]
+                     [--n-samples N_SAMPLES] [--sample-list SAMPLE_LIST]
+                     [--subset-out-dir SUBSET_OUT_DIR]
+                     [--subset-out-name SUBSET_OUT_NAME] --annovar-pl
+                     ANNOVAR_PL --annovar-db ANNOVAR_DB --vep-cache-dir
+                     VEP_CACHE_DIR --vep-plugin-dir VEP_PLUGIN_DIR
+                     --cadd-snv-file CADD_SNV_FILE --cadd-indel-file
+                     CADD_INDEL_FILE [--franklin-file FRANKLIN_FILE]
+                     [--genome-build GENOME_BUILD]
+                     [--vep-cache-version VEP_CACHE_VERSION]
+                     [--out-dir OUT_DIR] [--out-name OUT_NAME]
+                     [--plink-path PLINK_PATH] [--bcftools-path BCFTOOLS_PATH]
+                     [--bgzip-path BGZIP_PATH] [--tabix-path TABIX_PATH]
+
+Two-stage variant annotation pipeline.
+
+options:
+  -h, --help            show this help message and exit
+  --input-file INPUT_FILE
+  --file-type {plink1,plink2,vcf}
+  --gene GENE
+  --work-dir WORK_DIR   Where ANNOVAR/VEP intermediate files are written
+  --chrom CHROM
+  --start START
+  --end END
+  --maf-min MAF_MIN     Minimum MAF -- keeps variants >= this (drops rare),
+                        computed on all samples before subsetting
+  --maf-max MAF_MAX     Maximum MAF -- keeps variants <= this (drops common),
+                        e.g. 0.01 to keep only rare variants; computed on all
+                        samples before subsetting
+  --n-samples N_SAMPLES
+  --sample-list SAMPLE_LIST
+  --subset-out-dir SUBSET_OUT_DIR
+                        Directory for the Stage 1 subset VCF (default: work-
+                        dir)
+  --subset-out-name SUBSET_OUT_NAME
+                        Base filename (no ext) for the Stage 1 subset VCF
+                        (default: <gene>.subset)
+  --annovar-pl ANNOVAR_PL
+  --annovar-db ANNOVAR_DB
+  --vep-cache-dir VEP_CACHE_DIR
+  --vep-plugin-dir VEP_PLUGIN_DIR
+  --cadd-snv-file CADD_SNV_FILE
+  --cadd-indel-file CADD_INDEL_FILE
+  --franklin-file FRANKLIN_FILE
+  --genome-build GENOME_BUILD
+  --vep-cache-version VEP_CACHE_VERSION
+  --out-dir OUT_DIR     Directory for the FINAL annotation table (default:
+                        work-dir)
+  --out-name OUT_NAME   Base filename (no ext) for the FINAL annotation table
+                        (default: <gene>_annotation_final)
+  --plink-path PLINK_PATH
+                        Path to the plink2 binary (default: 'plink2', resolved
+                        via PATH)
+  --bcftools-path BCFTOOLS_PATH
+                        Path to the bcftools binary. If bcftools misbehaves
+                        (e.g. 'invalid option' errors on modern flags like
+                        -O/-o), PATH is probably resolving to a stale/wrong
+                        binary -- pass the absolute path here instead, e.g.
+                        output of `which bcftools` run inside your activated
+                        env.
+  --bgzip-path BGZIP_PATH
+                        Path to the bgzip binary (default: 'bgzip', resolved
+                        via PATH)
+  --tabix-path TABIX_PATH
+                        Path to the tabix binary (default: 'tabix', resolved
+                        via PATH)
+```
+
 - Omit `--chrom/--start/--end` if the input file is already region-subset.
 - Omit `--maf-min`/`--maf-max` to skip MAF filtering in that direction --
 `--maf-min` drops rare variants below the cutoff, `--maf-max` drops common
@@ -77,71 +150,6 @@ via `PATH`, and are optional.
 
 
 
-## Stage 2 — `run_variant_annotation()`
-
-Runs ANNOVAR (`table_annovar.pl`) and VEP (`--plugin CADD`) on the Stage-1
-VCF, reduces each output to a fixed column set, merges them, and optionally
-merges in a Franklin export.
-
-```python
-from variant_annotation_pipeline import run_variant_annotation
-
-out_file = run_variant_annotation(
-    vcf_file=vcf,
-    gene="BLTP3A",
-    work_dir="data/wgs/merged/BLTP3A",
-    annovar_pl="/home/jupyter/annovar/table_annovar.pl",
-    annovar_db="/home/jupyter/annovar/humandb/",
-    vep_cache_dir="/home/jupyter/.vep/",
-    vep_plugin_dir="/home/jupyter/.vep/",
-    cadd_snv_file="/home/jupyter/.vep/CADD_v1.7_GRCh38/whole_genome_SNVs.tsv.gz",
-    cadd_indel_file="/home/jupyter/.vep/CADD_v1.7_GRCh38/gnomad.genomes.r4.0.indel.tsv.gz",
-    franklin_file="results/processed/wgs/annotation/BLTP3A_r12_franklin.txt",  # optional
-    out_dir="results/processed/wgs/annotation",   # optional -- defaults to work_dir
-    out_name="BLTP3A_final_annotation",           # optional -- defaults to <gene>_annotation_final
-)
-```
-
-`work_dir` is where the ANNOVAR/VEP intermediate files land
-(`{gene}.annovar.*`, `{gene}.VEP.vcf`). `out_dir`/`out_name` control only the
-**final** merged table, so you can keep intermediates in a scratch directory
-and send the finished table somewhere else — e.g. a shared results folder.
-Both are optional; if omitted, the final table is written to
-`{work_dir}/{gene}_annotation_final.txt` as before.
-
-### What it runs
-
-1. **ANNOVAR**: `table_annovar.pl` with
-   `refGene,cytoBand,exac03,avsnp147,dbnsfp47a,clinvar_20250721,gnomad41_genome`.
-2. **Column reduction (ANNOVAR)**: keeps the same column set as your original
-   `awk` script (Chr/Start/End/Ref/Alt, `Otherinfo6` → renamed **`Variants`**,
-   avsnp147, refGene fields, CLNSIG, CADD/EVE/AlphaMissense/SIFT/SIFT4G/
-   Polyphen2/REVEL scores, gnomad41_genome AFs, GTEx eQTL/sQTL, eQTLGen).
-3. **VEP**: same command you had, `--cache_version 114`, `--plugin CADD`,
-   `--everything`.
-4. **Column reduction (VEP)**: parses the `CSQ` INFO field using the field
-   order read directly from the VCF header (so it never breaks if VEP
-   version/flags change the column order). Keeps `Consequence`, `IMPACT`,
-   `SIFT`, `PolyPhen`, `CADD_PHRED`, `CADD_RAW`.
-   - **Transcript selection**: a variant can hit multiple transcripts. This
-     keeps the block flagged `CANONICAL=YES`; if none is flagged canonical,
-     it falls back to the first transcript block. If you'd rather keep
-     every transcript per variant (long format), say so and I'll add a
-     `canonical_only=False` mode.
-5. **Merge**: ANNOVAR-reduced ⋈ VEP-reduced on `Variants` (the VCF ID,
-   e.g. `chr6:34792087:C:T`) — a left join, so every ANNOVAR-annotated
-   variant is kept even if VEP's ID string doesn't match for some reason.
-6. **Franklin (optional)**: if `franklin_file` is given, its `Variants`
-   column is normalized (`chr` prefix stripped and re-added, matching your
-   original script) and merged in. Default join is **`left`** (keeps every
-   annotated variant, blank Franklin score if unmatched) — pass
-   `franklin_join="inner"` to only keep variants with a Franklin match
-   (matches the original script's behavior).
-7. **Output**: `{work_dir}/{gene}_annotation_final.txt`, tab-separated,
-   with a header row.
-
-Row counts at each step are printed to stdout so you can sanity-check drops
-at each merge, same as your original `print(df.shape[0])` calls.
 
 
 
@@ -291,7 +299,8 @@ your master file has.
 - **Multi-transcript variants**: canonical-transcript selection is a
   simplification — flag if you need multi-transcript (long-format) output
   instead.
-  
+
+## Two stage process in STEP 1
 ## Stage 1 — `prepare_variant_subset()`
 
 Accepts **PLINK1** (`.bed/.bim/.fam`), **PLINK2** (`.pgen/.pvar/.psam`), or
@@ -338,6 +347,73 @@ vcf = prepare_variant_subset(
 - Sample IDs for `n_samples` are read directly from the VCF's `#CHROM`
   header line via Python's stdlib `gzip` module -- no `bcftools query -l`
   call, so this step doesn't depend on bcftools at all.
+
+## Stage 2 — `run_variant_annotation()`
+
+Runs ANNOVAR (`table_annovar.pl`) and VEP (`--plugin CADD`) on the Stage-1
+VCF, reduces each output to a fixed column set, merges them, and optionally
+merges in a Franklin export.
+
+```python
+from variant_annotation_pipeline import run_variant_annotation
+
+out_file = run_variant_annotation(
+    vcf_file=vcf,
+    gene="BLTP3A",
+    work_dir="data/wgs/merged/BLTP3A",
+    annovar_pl="/home/jupyter/annovar/table_annovar.pl",
+    annovar_db="/home/jupyter/annovar/humandb/",
+    vep_cache_dir="/home/jupyter/.vep/",
+    vep_plugin_dir="/home/jupyter/.vep/",
+    cadd_snv_file="/home/jupyter/.vep/CADD_v1.7_GRCh38/whole_genome_SNVs.tsv.gz",
+    cadd_indel_file="/home/jupyter/.vep/CADD_v1.7_GRCh38/gnomad.genomes.r4.0.indel.tsv.gz",
+    franklin_file="results/processed/wgs/annotation/BLTP3A_r12_franklin.txt",  # optional
+    out_dir="results/processed/wgs/annotation",   # optional -- defaults to work_dir
+    out_name="BLTP3A_final_annotation",           # optional -- defaults to <gene>_annotation_final
+)
+```
+
+`work_dir` is where the ANNOVAR/VEP intermediate files land
+(`{gene}.annovar.*`, `{gene}.VEP.vcf`). `out_dir`/`out_name` control only the
+**final** merged table, so you can keep intermediates in a scratch directory
+and send the finished table somewhere else — e.g. a shared results folder.
+Both are optional; if omitted, the final table is written to
+`{work_dir}/{gene}_annotation_final.txt` as before.
+
+### What it runs
+
+1. **ANNOVAR**: `table_annovar.pl` with
+   `refGene,cytoBand,exac03,avsnp147,dbnsfp47a,clinvar_20250721,gnomad41_genome`.
+2. **Column reduction (ANNOVAR)**: keeps the same column set as your original
+   `awk` script (Chr/Start/End/Ref/Alt, `Otherinfo6` → renamed **`Variants`**,
+   avsnp147, refGene fields, CLNSIG, CADD/EVE/AlphaMissense/SIFT/SIFT4G/
+   Polyphen2/REVEL scores, gnomad41_genome AFs, GTEx eQTL/sQTL, eQTLGen).
+3. **VEP**: same command you had, `--cache_version 114`, `--plugin CADD`,
+   `--everything`.
+4. **Column reduction (VEP)**: parses the `CSQ` INFO field using the field
+   order read directly from the VCF header (so it never breaks if VEP
+   version/flags change the column order). Keeps `Consequence`, `IMPACT`,
+   `SIFT`, `PolyPhen`, `CADD_PHRED`, `CADD_RAW`.
+   - **Transcript selection**: a variant can hit multiple transcripts. This
+     keeps the block flagged `CANONICAL=YES`; if none is flagged canonical,
+     it falls back to the first transcript block. If you'd rather keep
+     every transcript per variant (long format), say so and I'll add a
+     `canonical_only=False` mode.
+5. **Merge**: ANNOVAR-reduced ⋈ VEP-reduced on `Variants` (the VCF ID,
+   e.g. `chr6:34792087:C:T`) — a left join, so every ANNOVAR-annotated
+   variant is kept even if VEP's ID string doesn't match for some reason.
+6. **Franklin (optional)**: if `franklin_file` is given, its `Variants`
+   column is normalized (`chr` prefix stripped and re-added, matching your
+   original script) and merged in. Default join is **`left`** (keeps every
+   annotated variant, blank Franklin score if unmatched) — pass
+   `franklin_join="inner"` to only keep variants with a Franklin match
+   (matches the original script's behavior).
+7. **Output**: `{work_dir}/{gene}_annotation_final.txt`, tab-separated,
+   with a header row.
+
+Row counts at each step are printed to stdout so you can sanity-check drops
+at each merge, same as your original `print(df.shape[0])` calls.
+
 
 ## Step 2 requirements
 
