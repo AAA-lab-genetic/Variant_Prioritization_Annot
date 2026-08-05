@@ -53,11 +53,11 @@ python variant_annotation_pipeline.py \
   --tabix-path /opt/conda/envs/vep_env/bin/tabix
 ```
 
-Omit `--chrom/--start/--end` if the input file is already region-subset.
-Omit `--maf-min`/`--maf-max` to skip MAF filtering in that direction --
+- Omit `--chrom/--start/--end` if the input file is already region-subset.
+- Omit `--maf-min`/`--maf-max` to skip MAF filtering in that direction --
 `--maf-min` drops rare variants below the cutoff, `--maf-max` drops common
 variants above it (use `--maf-max` alone to keep only rare variants).
-`--subset-out-dir`/`--subset-out-name` and `--out-dir`/`--out-name` are all
+- `--subset-out-dir`/`--subset-out-name` and `--out-dir`/`--out-name` are all
 optional — omit any of them to fall back to `--work-dir` and gene-based
 default names.
 
@@ -65,89 +65,17 @@ default names.
 
 All four tool-path flags (`--plink-path`, `--bcftools-path`,
 `--bgzip-path`, `--tabix-path`) default to the bare command name resolved
-via `PATH`, and are optional. Pin them to absolute paths if you hit tool
-resolution issues — e.g. `bcftools` rejecting modern flags like `-O`/`-o`
-with an `invalid option` error means `PATH` is resolving to a stale/legacy
-binary rather than the one you get by typing `bcftools` interactively
-(Python's `subprocess` doesn't see shell aliases/functions, only `PATH`).
-Every run prints a `[tool resolution]` block up front showing exactly
-which absolute path each tool name resolved to, so you can check this
-without guessing:
+via `PATH`, and are optional. 
 
 ```
-[tool resolution]
-  plink: 'plink2' -> /opt/conda/envs/vep_env/bin/plink2
-  bcftools: 'bcftools' -> /usr/bin/bcftools   <- suspicious if this isn't in vep_env
-  bgzip: 'bgzip' -> /opt/conda/envs/vep_env/bin/bgzip
-  tabix: 'tabix' -> /opt/conda/envs/vep_env/bin/tabix
+[tools path default]
+  plink: 'plink2' -> /PATH/TO/plink2
+  bcftools: 'bcftools' -> /PATH/TO/bcftools
+  bgzip: 'bgzip' -> /PATH/TO/bgzip
+  tabix: 'tabix' -> /PATH/TO/tabix
 ```
 
-## Step 1 requirements
 
-- `plink2`, `bcftools`, `bgzip`, `tabix` available (absolute paths
-  recommended -- see above).
-- `perl` + ANNOVAR (`table_annovar.pl`, `humandb/`) and `vep` (with the CADD
-  plugin data files) available, for Stage 2.
-- Python: `polars`.
-
-## Step 1 known assumptions to revisit
-
-- **Merge key**: uses the VCF ID string (`Variants`, e.g.
-  `chr6:34792087:C:T`) rather than Chr/Start/Ref/Alt, since that's what your
-  original ANNOVAR reduction and Franklin merge both used. This assumes the
-  same VCF ID convention is present in both the ANNOVAR-run VCF and the
-  VEP-run VCF — worth double-checking if you ever swap in a differently
-  formatted input VCF.
-- **Multi-transcript variants**: canonical-transcript selection is a
-  simplification — flag if you need multi-transcript (long-format) output
-  instead.
-  
-## Stage 1 — `prepare_variant_subset()`
-
-Accepts **PLINK1** (`.bed/.bim/.fam`), **PLINK2** (`.pgen/.pvar/.psam`), or
-**VCF** input. Outputs a bgzipped, indexed VCF.
-
-```python
-from variant_annotation_pipeline import prepare_variant_subset
-
-vcf = prepare_variant_subset(
-    input_file="data/wgs/merged/BLTP3A/merged_release12_vwb",  # plink prefix or vcf path
-    file_type="plink2",             # "plink1" | "plink2" | "vcf"
-    out_dir="data/wgs/merged/BLTP3A",
-    out_name="BLTP3A_subset",       # -> data/wgs/merged/BLTP3A/BLTP3A_subset.vcf.gz
-    chrom="6", start=34700000, end=34900000,   # omit all 3 if input is already region-subset
-    maf_min=None,                   # keep variants with MAF >= this; None = no minimum
-    maf_max=0.01,                   # keep variants with MAF <= this, i.e. rare variants; None = no maximum
-    n_samples=10,                   # applied AFTER the MAF filter; or sample_list="my_samples.txt"
-)
-```
-
-**Notes**
-- `out_dir` is created if it doesn't exist; the final VCF is written to
-  `f"{out_dir}/{out_name}.vcf.gz"` (indexed alongside it).
-- If `chrom/start/end` are all `None`, the input is assumed to already be
-  region-subset (e.g. you extracted the gene region upstream).
-- `maf_min`/`maf_max` filter in **opposite directions** — don't mix them up:
-  - `maf_min=0.01` keeps variants with MAF ≥ 0.01, i.e. drops rare variants.
-  - `maf_max=0.01` keeps variants with MAF ≤ 0.01, i.e. keeps **only** rare
-    variants below that cutoff (set `maf_min=None` if you just want this).
-  - Set both for a MAF range (e.g. `maf_min=0.001, maf_max=0.01` for a
-    rare-but-not-singleton band).
-  - Both are computed across the full sample set before any subsetting.
-  - PLINK inputs: implemented as `plink2 --export vcf-iid` (uncompressed
-    VCF, IID-only sample names), then `bgzip -f` and `tabix -f -p vcf` --
-    the same tools bcftools uses internally, and the confirmed-working
-    path for this setup. (An earlier version relied on plink2's own
-    internal `bgz` export + `bcftools index`, which crashed intermittently;
-    this replaces that.)
-  - VCF input: implemented as `bcftools view -q <maf_min>:minor` /
-    `-Q <maf_max>:minor`, run on the region-extracted VCF before any `-S`
-    sample subset, then indexed with `tabix -f -p vcf`.
-- If `sample_list` is given, it overrides `n_samples`. One VCF sample name
-  per line.
-- Sample IDs for `n_samples` are read directly from the VCF's `#CHROM`
-  header line via Python's stdlib `gzip` module -- no `bcftools query -l`
-  call, so this step doesn't depend on bcftools at all.
 
 ## Stage 2 — `run_variant_annotation()`
 
@@ -228,17 +156,56 @@ monogenic report merging. Implemented as composable functions in
 `individual_level_pipeline.py`, plus an orchestrator
 (`run_individual_level_pipeline()`) and a CLI that chains them.
 
-## Why this is separate from Step 1
-
-Step 1 produces one row per **variant**. Step 2 produces one row per
-**carrier** (an individual x variant pair), split out by ancestry, with
-sample metadata, per-ancestry allele frequencies, double-het status, and
-monogenic findings all joined in. Different unit of analysis, different
-tooling (PLINK1.9 `--recode A` specifically, not plink2), so it's a
-separate module.
 
 ## Step 2 pipeline stages
 
+## Step 2 usage — CLI
+
+```bash
+python individual_level_pipeline.py \
+  --bfile-prefix data/wgs/merged/BLTP3A/merged_release12_vwb_BLTP3A_updated \
+  --gene BLTP3A \
+  --work-dir data/wgs/merged/BLTP3A \
+  --master-file data/wgs/master_key_release12_final_vwb.csv \
+  --master-keep-cols "FID,GP2ID,wgs_label,diagnosis,GP2_phenotype_for_qc,biological_sex_for_qc,age_at_sample_collection,age_of_onset,age_at_diagnosis,age_at_death,age_at_last_follow_up,race_for_qc,family_history_for_qc,region_for_qc" \
+  --master-id-rename "GP2ID:IID" \
+  --master-filter-col wgs \
+  --master-filter-value 1 \
+  --label-col wgs_label \
+  --labels "AAC,AFR,AJ,AMR,CAH,CAS,EAS,EUR,MDE,SAS" \
+  --annotation-file results/processed/wgs/annotation/BLTP3A_final_annotation.txt \
+  --plink19-path /home/jupyter/plink1.9 \
+  --compute-ancestry-maf \
+  --ancestry-bfile-template "data/wgs/{label}/BLTP3A/{label}_release12_vwb_{gene}_updated" \
+  --compute-double-het \
+  --add-monogenic \
+  --monogenic-report-file /home/jupyter/workspace/gp2_tier2_eu_release12/variant_report/GP2_release12_variant_report.csv \
+  --out-dir results/processed/wgs/annotation \
+  --out-name BLTP3A_carrier_info_combined \
+  --variant-out-name BLTP3A_variant_info
+```
+
+Omit `--compute-ancestry-maf`/`--compute-double-het`/`--add-monogenic` (or
+their Python equivalents) to skip those stages entirely. If you skip
+`--compute-ancestry-maf`, the double-het/monogenic steps run against your
+original `annotation_file` instead of the enriched variant-info file —
+make sure it has whatever columns `find_double_het()` needs
+(`gnomad41_genome_fafmax_faf95_max`, `Franklin` by default; both are
+overridable via `--double-het-freq-col`/`--double-het-pathogenicity-col`).
+
+## Step 2 output naming
+
+- `work_dir` — where every per-ancestry **intermediate** file is written
+  (the `.raw`, the per-label splits, the per-label carrier/doublehet
+  files before the final combine).
+- `out_dir` — where the two **final** outputs go. Defaults to `work_dir`
+  if not given.
+- `out_name` — base filename for the final combined carrier file.
+  Defaults to `{gene}_carrier_info_combined`.
+- `variant_out_name` — base filename for the final variant info file
+  (only produced if `compute_ancestry_maf=True`). Defaults to
+  `{gene}_variant_info`.
+  
 **Core path (always runs):**
 
 1. `plink19_recode_raw()` — PLINK1.9 `--recode A` on the input plink1
@@ -302,6 +269,81 @@ which columns are "not a variant" when unpivoting) is computed from
 slice/index — so it stays correct regardless of how many metadata columns
 your master file has.
 
+
+# Side Notes
+
+## Step 1 requirements
+
+- `plink2`, `bcftools`, `bgzip`, `tabix` available (absolute paths
+  recommended -- see above).
+- `perl` + ANNOVAR (`table_annovar.pl`, `humandb/`) and `vep` (with the CADD
+  plugin data files) available, for Stage 2.
+- Python: `polars`.
+
+## Step 1 known assumptions to revisit
+
+- **Merge key**: uses the VCF ID string (`Variants`, e.g.
+  `chr6:34792087:C:T`) rather than Chr/Start/Ref/Alt, since that's what your
+  original ANNOVAR reduction and Franklin merge both used. This assumes the
+  same VCF ID convention is present in both the ANNOVAR-run VCF and the
+  VEP-run VCF — worth double-checking if you ever swap in a differently
+  formatted input VCF.
+- **Multi-transcript variants**: canonical-transcript selection is a
+  simplification — flag if you need multi-transcript (long-format) output
+  instead.
+  
+## Stage 1 — `prepare_variant_subset()`
+
+Accepts **PLINK1** (`.bed/.bim/.fam`), **PLINK2** (`.pgen/.pvar/.psam`), or
+**VCF** input. Outputs a bgzipped, indexed VCF.
+
+```python
+from variant_annotation_pipeline import prepare_variant_subset
+
+vcf = prepare_variant_subset(
+    input_file="data/wgs/merged/BLTP3A/merged_release12_vwb",  # plink prefix or vcf path
+    file_type="plink2",             # "plink1" | "plink2" | "vcf"
+    out_dir="data/wgs/merged/BLTP3A",
+    out_name="BLTP3A_subset",       # -> data/wgs/merged/BLTP3A/BLTP3A_subset.vcf.gz
+    chrom="6", start=34700000, end=34900000,   # omit all 3 if input is already region-subset
+    maf_min=None,                   # keep variants with MAF >= this; None = no minimum
+    maf_max=0.01,                   # keep variants with MAF <= this, i.e. rare variants; None = no maximum
+    n_samples=10,                   # applied AFTER the MAF filter; or sample_list="my_samples.txt"
+)
+```
+
+**Notes**
+- `out_dir` is created if it doesn't exist; the final VCF is written to
+  `f"{out_dir}/{out_name}.vcf.gz"` (indexed alongside it).
+- If `chrom/start/end` are all `None`, the input is assumed to already be
+  region-subset (e.g. you extracted the gene region upstream).
+- `maf_min`/`maf_max` filter in **opposite directions** — don't mix them up:
+  - `maf_min=0.01` keeps variants with MAF ≥ 0.01, i.e. drops rare variants.
+  - `maf_max=0.01` keeps variants with MAF ≤ 0.01, i.e. keeps **only** rare
+    variants below that cutoff (set `maf_min=None` if you just want this).
+  - Set both for a MAF range (e.g. `maf_min=0.001, maf_max=0.01` for a
+    rare-but-not-singleton band).
+  - Both are computed across the full sample set before any subsetting.
+  - PLINK inputs: implemented as `plink2 --export vcf-iid` (uncompressed
+    VCF, IID-only sample names), then `bgzip -f` and `tabix -f -p vcf` --
+    the same tools bcftools uses internally, and the confirmed-working
+    path for this setup. (An earlier version relied on plink2's own
+    internal `bgz` export + `bcftools index`, which crashed intermittently;
+    this replaces that.)
+  - VCF input: implemented as `bcftools view -q <maf_min>:minor` /
+    `-Q <maf_max>:minor`, run on the region-extracted VCF before any `-S`
+    sample subset, then indexed with `tabix -f -p vcf`.
+- If `sample_list` is given, it overrides `n_samples`. One VCF sample name
+  per line.
+- Sample IDs for `n_samples` are read directly from the VCF's `#CHROM`
+  header line via Python's stdlib `gzip` module -- no `bcftools query -l`
+  call, so this step doesn't depend on bcftools at all.
+
+## Step 2 requirements
+
+- `plink1.9` available (absolute path recommended).
+- Python: `polars`.
+
 ## Step 2 usage — Python
 
 ```python
@@ -347,52 +389,7 @@ print(result["combined_carrier_file"])   # final all-ancestry carrier file
 print(result.get("variant_info_file"))   # final all-ancestry variant file (if compute_ancestry_maf=True)
 ```
 
-## Step 2 usage — CLI
 
-```bash
-python individual_level_pipeline.py \
-  --bfile-prefix data/wgs/merged/BLTP3A/merged_release12_vwb_BLTP3A_updated \
-  --gene BLTP3A \
-  --work-dir data/wgs/merged/BLTP3A \
-  --master-file data/wgs/master_key_release12_final_vwb.csv \
-  --master-keep-cols "FID,GP2ID,wgs_label,diagnosis,GP2_phenotype_for_qc,biological_sex_for_qc,age_at_sample_collection,age_of_onset,age_at_diagnosis,age_at_death,age_at_last_follow_up,race_for_qc,family_history_for_qc,region_for_qc" \
-  --master-id-rename "GP2ID:IID" \
-  --master-filter-col wgs \
-  --master-filter-value 1 \
-  --label-col wgs_label \
-  --labels "AAC,AFR,AJ,AMR,CAH,CAS,EAS,EUR,MDE,SAS" \
-  --annotation-file results/processed/wgs/annotation/BLTP3A_final_annotation.txt \
-  --plink19-path /home/jupyter/plink1.9 \
-  --compute-ancestry-maf \
-  --ancestry-bfile-template "data/wgs/{label}/BLTP3A/{label}_release12_vwb_{gene}_updated" \
-  --compute-double-het \
-  --add-monogenic \
-  --monogenic-report-file /home/jupyter/workspace/gp2_tier2_eu_release12/variant_report/GP2_release12_variant_report.csv \
-  --out-dir results/processed/wgs/annotation \
-  --out-name BLTP3A_carrier_info_combined \
-  --variant-out-name BLTP3A_variant_info
-```
-
-Omit `--compute-ancestry-maf`/`--compute-double-het`/`--add-monogenic` (or
-their Python equivalents) to skip those stages entirely. If you skip
-`--compute-ancestry-maf`, the double-het/monogenic steps run against your
-original `annotation_file` instead of the enriched variant-info file —
-make sure it has whatever columns `find_double_het()` needs
-(`gnomad41_genome_fafmax_faf95_max`, `Franklin` by default; both are
-overridable via `--double-het-freq-col`/`--double-het-pathogenicity-col`).
-
-## Step 2 output naming
-
-- `work_dir` — where every per-ancestry **intermediate** file is written
-  (the `.raw`, the per-label splits, the per-label carrier/doublehet
-  files before the final combine).
-- `out_dir` — where the two **final** outputs go. Defaults to `work_dir`
-  if not given.
-- `out_name` — base filename for the final combined carrier file.
-  Defaults to `{gene}_carrier_info_combined`.
-- `variant_out_name` — base filename for the final variant info file
-  (only produced if `compute_ancestry_maf=True`). Defaults to
-  `{gene}_variant_info`.
 
 ## Step 2 known assumption to confirm: double-het join direction
 
@@ -409,8 +406,3 @@ double-het status as an added column), the fix is to swap the join
 direction: `results.join(grouped, on="IID", how="left")` instead. I kept
 the original behavior since I wasn't sure which was intended — let me
 know if you want it swapped.
-
-## Step 2 requirements
-
-- `plink1.9` available (absolute path recommended).
-- Python: `polars`.
