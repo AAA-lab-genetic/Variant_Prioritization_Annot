@@ -19,28 +19,89 @@ Both use **polars** for table processing.
 Implemented as two Python functions in `variant_annotation_pipeline.py`,
 plus a CLI that chains them.
 
-## Why two stages, and why the order matters
-
-Annotation tools (ANNOVAR, VEP) operate on the **variant records** in a VCF —
-they don't use per-sample genotypes. Running a cohort-scale VCF with hundreds
-of samples through them wastes time for no annotation benefit. Stage 1
-subsets to a small number of samples (default **10**) *before* handing the
-file to ANNOVAR/VEP, purely for speed.
-
-That subsetting is **not** a way of deciding which variants matter — it's
-just fewer genotype columns for ANNOVAR/VEP to read. So allele-frequency
-filtering (MAF) has to happen **before** the sample subset, computed across
-**every** sample in the input. If MAF were computed after subsetting to 10
-people, it would reflect those 10 people's allele frequencies, not the
-cohort's — an entirely different (and much noisier) number. Stage 1 enforces
-this order internally:
-
 1. Optional region extraction (`chrom`/`start`/`end`).
 2. Optional MAF filter (`maf_min`/`maf_max`) — computed on **all** samples
    in the input file.
 3. Sample subsetting to `n_samples` (default 10) or a supplied
    `sample_list` — for annotation speed only.
 
+## Step 1 CLI usage
+
+```bash
+python variant_annotation_pipeline.py \
+  --input-file data/wgs/merged/BLTP3A/merged_release12_vwb \
+  --file-type plink2 \
+  --gene BLTP3A \
+  --work-dir data/wgs/merged/BLTP3A \
+  --chrom 6 --start 34700000 --end 34900000 \
+  --maf-max 0.01 \
+  --n-samples 10 \
+  --subset-out-dir data/wgs/merged/BLTP3A \
+  --subset-out-name BLTP3A_subset \
+  --annovar-pl /home/jupyter/annovar/table_annovar.pl \
+  --annovar-db /home/jupyter/annovar/humandb/ \
+  --vep-cache-dir /home/jupyter/.vep/ \
+  --vep-plugin-dir /home/jupyter/.vep/ \
+  --cadd-snv-file /home/jupyter/.vep/CADD_v1.7_GRCh38/whole_genome_SNVs.tsv.gz \
+  --cadd-indel-file /home/jupyter/.vep/CADD_v1.7_GRCh38/gnomad.genomes.r4.0.indel.tsv.gz \
+  --franklin-file results/processed/wgs/annotation/BLTP3A_r12_franklin.txt \
+  --out-dir results/processed/wgs/annotation \
+  --out-name BLTP3A_final_annotation \
+  --bcftools-path /opt/conda/envs/vep_env/bin/bcftools \
+  --plink-path /opt/conda/envs/vep_env/bin/plink2 \
+  --bgzip-path /opt/conda/envs/vep_env/bin/bgzip \
+  --tabix-path /opt/conda/envs/vep_env/bin/tabix
+```
+
+Omit `--chrom/--start/--end` if the input file is already region-subset.
+Omit `--maf-min`/`--maf-max` to skip MAF filtering in that direction --
+`--maf-min` drops rare variants below the cutoff, `--maf-max` drops common
+variants above it (use `--maf-max` alone to keep only rare variants).
+`--subset-out-dir`/`--subset-out-name` and `--out-dir`/`--out-name` are all
+optional — omit any of them to fall back to `--work-dir` and gene-based
+default names.
+
+### Tool paths (`--bcftools-path` etc.)
+
+All four tool-path flags (`--plink-path`, `--bcftools-path`,
+`--bgzip-path`, `--tabix-path`) default to the bare command name resolved
+via `PATH`, and are optional. Pin them to absolute paths if you hit tool
+resolution issues — e.g. `bcftools` rejecting modern flags like `-O`/`-o`
+with an `invalid option` error means `PATH` is resolving to a stale/legacy
+binary rather than the one you get by typing `bcftools` interactively
+(Python's `subprocess` doesn't see shell aliases/functions, only `PATH`).
+Every run prints a `[tool resolution]` block up front showing exactly
+which absolute path each tool name resolved to, so you can check this
+without guessing:
+
+```
+[tool resolution]
+  plink: 'plink2' -> /opt/conda/envs/vep_env/bin/plink2
+  bcftools: 'bcftools' -> /usr/bin/bcftools   <- suspicious if this isn't in vep_env
+  bgzip: 'bgzip' -> /opt/conda/envs/vep_env/bin/bgzip
+  tabix: 'tabix' -> /opt/conda/envs/vep_env/bin/tabix
+```
+
+## Step 1 requirements
+
+- `plink2`, `bcftools`, `bgzip`, `tabix` available (absolute paths
+  recommended -- see above).
+- `perl` + ANNOVAR (`table_annovar.pl`, `humandb/`) and `vep` (with the CADD
+  plugin data files) available, for Stage 2.
+- Python: `polars`.
+
+## Step 1 known assumptions to revisit
+
+- **Merge key**: uses the VCF ID string (`Variants`, e.g.
+  `chr6:34792087:C:T`) rather than Chr/Start/Ref/Alt, since that's what your
+  original ANNOVAR reduction and Franklin merge both used. This assumes the
+  same VCF ID convention is present in both the ANNOVAR-run VCF and the
+  VEP-run VCF — worth double-checking if you ever swap in a differently
+  formatted input VCF.
+- **Multi-transcript variants**: canonical-transcript selection is a
+  simplification — flag if you need multi-transcript (long-format) output
+  instead.
+  
 ## Stage 1 — `prepare_variant_subset()`
 
 Accepts **PLINK1** (`.bed/.bim/.fam`), **PLINK2** (`.pgen/.pvar/.psam`), or
@@ -154,82 +215,7 @@ Both are optional; if omitted, the final table is written to
 Row counts at each step are printed to stdout so you can sanity-check drops
 at each merge, same as your original `print(df.shape[0])` calls.
 
-## Step 1 CLI usage
 
-```bash
-python variant_annotation_pipeline.py \
-  --input-file data/wgs/merged/BLTP3A/merged_release12_vwb \
-  --file-type plink2 \
-  --gene BLTP3A \
-  --work-dir data/wgs/merged/BLTP3A \
-  --chrom 6 --start 34700000 --end 34900000 \
-  --maf-max 0.01 \
-  --n-samples 10 \
-  --subset-out-dir data/wgs/merged/BLTP3A \
-  --subset-out-name BLTP3A_subset \
-  --annovar-pl /home/jupyter/annovar/table_annovar.pl \
-  --annovar-db /home/jupyter/annovar/humandb/ \
-  --vep-cache-dir /home/jupyter/.vep/ \
-  --vep-plugin-dir /home/jupyter/.vep/ \
-  --cadd-snv-file /home/jupyter/.vep/CADD_v1.7_GRCh38/whole_genome_SNVs.tsv.gz \
-  --cadd-indel-file /home/jupyter/.vep/CADD_v1.7_GRCh38/gnomad.genomes.r4.0.indel.tsv.gz \
-  --franklin-file results/processed/wgs/annotation/BLTP3A_r12_franklin.txt \
-  --out-dir results/processed/wgs/annotation \
-  --out-name BLTP3A_final_annotation \
-  --bcftools-path /opt/conda/envs/vep_env/bin/bcftools \
-  --plink-path /opt/conda/envs/vep_env/bin/plink2 \
-  --bgzip-path /opt/conda/envs/vep_env/bin/bgzip \
-  --tabix-path /opt/conda/envs/vep_env/bin/tabix
-```
-
-Omit `--chrom/--start/--end` if the input file is already region-subset.
-Omit `--maf-min`/`--maf-max` to skip MAF filtering in that direction --
-`--maf-min` drops rare variants below the cutoff, `--maf-max` drops common
-variants above it (use `--maf-max` alone to keep only rare variants).
-`--subset-out-dir`/`--subset-out-name` and `--out-dir`/`--out-name` are all
-optional — omit any of them to fall back to `--work-dir` and gene-based
-default names.
-
-### Tool paths (`--bcftools-path` etc.)
-
-All four tool-path flags (`--plink-path`, `--bcftools-path`,
-`--bgzip-path`, `--tabix-path`) default to the bare command name resolved
-via `PATH`, and are optional. Pin them to absolute paths if you hit tool
-resolution issues — e.g. `bcftools` rejecting modern flags like `-O`/`-o`
-with an `invalid option` error means `PATH` is resolving to a stale/legacy
-binary rather than the one you get by typing `bcftools` interactively
-(Python's `subprocess` doesn't see shell aliases/functions, only `PATH`).
-Every run prints a `[tool resolution]` block up front showing exactly
-which absolute path each tool name resolved to, so you can check this
-without guessing:
-
-```
-[tool resolution]
-  plink: 'plink2' -> /opt/conda/envs/vep_env/bin/plink2
-  bcftools: 'bcftools' -> /usr/bin/bcftools   <- suspicious if this isn't in vep_env
-  bgzip: 'bgzip' -> /opt/conda/envs/vep_env/bin/bgzip
-  tabix: 'tabix' -> /opt/conda/envs/vep_env/bin/tabix
-```
-
-## Step 1 requirements
-
-- `plink2`, `bcftools`, `bgzip`, `tabix` available (absolute paths
-  recommended -- see above).
-- `perl` + ANNOVAR (`table_annovar.pl`, `humandb/`) and `vep` (with the CADD
-  plugin data files) available, for Stage 2.
-- Python: `polars`.
-
-## Step 1 known assumptions to revisit
-
-- **Merge key**: uses the VCF ID string (`Variants`, e.g.
-  `chr6:34792087:C:T`) rather than Chr/Start/Ref/Alt, since that's what your
-  original ANNOVAR reduction and Franklin merge both used. This assumes the
-  same VCF ID convention is present in both the ANNOVAR-run VCF and the
-  VEP-run VCF — worth double-checking if you ever swap in a differently
-  formatted input VCF.
-- **Multi-transcript variants**: canonical-transcript selection is a
-  simplification — flag if you need multi-transcript (long-format) output
-  instead.
 
 ---
 
