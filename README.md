@@ -300,6 +300,7 @@ options:
 
 - Omit `--compute-ancestry-maf`/`--compute-double-het`/`--add-monogenic` (or
 their Python equivalents) to skip those stages entirely.
+
 - If you skip
 `--compute-ancestry-maf`, the double-het/monogenic steps run against your
 original `annotation_file` instead of the enriched variant-info file —
