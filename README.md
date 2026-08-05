@@ -2,7 +2,7 @@
 
 Two-step pipeline for gene-level variant work:
 
-- **Step 1** (`variant_annotation_pipeline.py`) — Two stages variant-level annotation:
+- **Step 1** (`variant_annotation_pipeline.py`) - Two stages variant-level annotation:
   ANNOVAR + VEP (with CADD), optionally merged with a Franklin export. One
   row per variant.
 
@@ -10,7 +10,7 @@ Output example:
 
 ```Folder XXX```
 
-- **Step 2** (`individual_level_pipeline.py`) — individual-level carrier
+- **Step 2** (`individual_level_pipeline.py`) - individual-level carrier
   analysis built on top of Step 1's output: who carries which variant,
   per-ancestry carrier frequencies, double-het flagging, monogenic report
   merging. One row per carrier (individual x variant), split by ancestry.
