@@ -193,6 +193,97 @@ python individual_level_pipeline.py \
   --variant-out-name BLTP3A_variant_info
 ```
 
+```
+usage: individual_level_pipeline.py [-h] --bfile-prefix BFILE_PREFIX --gene
+                                    GENE --work-dir WORK_DIR --master-file
+                                    MASTER_FILE --master-keep-cols
+                                    MASTER_KEEP_COLS
+                                    [--master-id-rename MASTER_ID_RENAME]
+                                    [--master-filter-col MASTER_FILTER_COL]
+                                    [--master-filter-value MASTER_FILTER_VALUE]
+                                    --label-col LABEL_COL --labels LABELS
+                                    --annotation-file ANNOTATION_FILE
+                                    [--plink19-path PLINK19_PATH]
+                                    [--compute-ancestry-maf]
+                                    [--ancestry-bfile-template ANCESTRY_BFILE_TEMPLATE]
+                                    [--genes-for-maf GENES_FOR_MAF]
+                                    [--compute-double-het]
+                                    [--double-het-freq-col DOUBLE_HET_FREQ_COL]
+                                    [--double-het-freq-threshold DOUBLE_HET_FREQ_THRESHOLD]
+                                    [--double-het-pathogenicity-col DOUBLE_HET_PATHOGENICITY_COL]
+                                    [--double-het-exclude-values DOUBLE_HET_EXCLUDE_VALUES]
+                                    [--add-monogenic]
+                                    [--monogenic-report-file MONOGENIC_REPORT_FILE]
+                                    [--split-by-function]
+                                    [--function-col FUNCTION_COL]
+                                    [--function-split-out-dir FUNCTION_SPLIT_OUT_DIR]
+                                    [--out-dir OUT_DIR] [--out-name OUT_NAME]
+                                    [--variant-out-name VARIANT_OUT_NAME]
+                                    [--final-column-order FINAL_COLUMN_ORDER]
+                                    [--no-final-column-order]
+
+Step 2: individual-level carrier/genotype pipeline.
+
+options:
+  -h, --help            show this help message and exit
+  --bfile-prefix BFILE_PREFIX
+                        plink1 fileset prefix (.bed/.bim/.fam, no extension)
+  --gene GENE
+  --work-dir WORK_DIR
+  --master-file MASTER_FILE
+  --master-keep-cols MASTER_KEEP_COLS
+                        Comma-separated list of columns to keep from the
+                        master file
+  --master-id-rename MASTER_ID_RENAME
+                        Comma-separated old:new pairs, e.g. 'GP2ID:IID'
+  --master-filter-col MASTER_FILTER_COL
+  --master-filter-value MASTER_FILTER_VALUE
+  --label-col LABEL_COL
+                        Ancestry/label column name in the master file
+  --labels LABELS       Comma-separated list of labels to split by
+  --annotation-file ANNOTATION_FILE
+                        Step 1 variant annotation table
+  --plink19-path PLINK19_PATH
+  --compute-ancestry-maf
+  --ancestry-bfile-template ANCESTRY_BFILE_TEMPLATE
+                        e.g. 'data/wgs/{label}/{gene}/{label}_release12_vwb_{g
+                        ene}_updated'
+  --genes-for-maf GENES_FOR_MAF
+                        Comma-separated gene list for the ancestry MAF step
+                        (default: just --gene)
+  --compute-double-het
+  --double-het-freq-col DOUBLE_HET_FREQ_COL
+  --double-het-freq-threshold DOUBLE_HET_FREQ_THRESHOLD
+  --double-het-pathogenicity-col DOUBLE_HET_PATHOGENICITY_COL
+  --double-het-exclude-values DOUBLE_HET_EXCLUDE_VALUES
+  --add-monogenic
+  --monogenic-report-file MONOGENIC_REPORT_FILE
+  --split-by-function   Split each label's final carrier file into one file
+                        per Func.refGene value (or --function-col)
+  --function-col FUNCTION_COL
+  --function-split-out-dir FUNCTION_SPLIT_OUT_DIR
+                        Where split files are written. Default: <work-
+                        dir>/by_variant_type
+  --out-dir OUT_DIR     Directory for the FINAL combined carrier file (and
+                        variant info file, if --compute-ancestry-maf).
+                        Default: work-dir
+  --out-name OUT_NAME   Base filename (no ext) for the FINAL combined carrier
+                        file. Default: <gene>_carrier_info_combined
+  --variant-out-name VARIANT_OUT_NAME
+                        Base filename (no ext) for the FINAL variant info
+                        file. Default: <gene>_variant_info
+  --final-column-order FINAL_COLUMN_ORDER
+                        Comma-separated explicit column list/order for the
+                        FINAL combined carrier file, overriding the built-in
+                        default layout (DEFAULT_FINAL_COLUMN_ORDER). Missing
+                        columns (e.g. Mono_* if --add-monogenic wasn't used)
+                        are added as all-null rather than erroring.
+  --no-final-column-order
+                        Skip column reordering entirely and leave columns in
+                        whatever order the pipeline produced (default layout
+                        is applied otherwise).
+```
+
 Omit `--compute-ancestry-maf`/`--compute-double-het`/`--add-monogenic` (or
 their Python equivalents) to skip those stages entirely. If you skip
 `--compute-ancestry-maf`, the double-het/monogenic steps run against your
@@ -279,206 +370,3 @@ your master file has.
 
 
 # Side Notes
-
-## Step 1 requirements
-
-- `plink2`, `bcftools`, `bgzip`, `tabix` available (absolute paths
-  recommended -- see above).
-- `perl` + ANNOVAR (`table_annovar.pl`, `humandb/`) and `vep` (with the CADD
-  plugin data files) available, for Stage 2.
-- Python: `polars`.
-
-## Step 1 known assumptions to revisit
-
-- **Merge key**: uses the VCF ID string (`Variants`, e.g.
-  `chr6:34792087:C:T`) rather than Chr/Start/Ref/Alt, since that's what your
-  original ANNOVAR reduction and Franklin merge both used. This assumes the
-  same VCF ID convention is present in both the ANNOVAR-run VCF and the
-  VEP-run VCF — worth double-checking if you ever swap in a differently
-  formatted input VCF.
-- **Multi-transcript variants**: canonical-transcript selection is a
-  simplification — flag if you need multi-transcript (long-format) output
-  instead.
-
-## Two stage process in STEP 1
-## Stage 1 — `prepare_variant_subset()`
-
-Accepts **PLINK1** (`.bed/.bim/.fam`), **PLINK2** (`.pgen/.pvar/.psam`), or
-**VCF** input. Outputs a bgzipped, indexed VCF.
-
-```python
-from variant_annotation_pipeline import prepare_variant_subset
-
-vcf = prepare_variant_subset(
-    input_file="data/wgs/merged/BLTP3A/merged_release12_vwb",  # plink prefix or vcf path
-    file_type="plink2",             # "plink1" | "plink2" | "vcf"
-    out_dir="data/wgs/merged/BLTP3A",
-    out_name="BLTP3A_subset",       # -> data/wgs/merged/BLTP3A/BLTP3A_subset.vcf.gz
-    chrom="6", start=34700000, end=34900000,   # omit all 3 if input is already region-subset
-    maf_min=None,                   # keep variants with MAF >= this; None = no minimum
-    maf_max=0.01,                   # keep variants with MAF <= this, i.e. rare variants; None = no maximum
-    n_samples=10,                   # applied AFTER the MAF filter; or sample_list="my_samples.txt"
-)
-```
-
-**Notes**
-- `out_dir` is created if it doesn't exist; the final VCF is written to
-  `f"{out_dir}/{out_name}.vcf.gz"` (indexed alongside it).
-- If `chrom/start/end` are all `None`, the input is assumed to already be
-  region-subset (e.g. you extracted the gene region upstream).
-- `maf_min`/`maf_max` filter in **opposite directions** — don't mix them up:
-  - `maf_min=0.01` keeps variants with MAF ≥ 0.01, i.e. drops rare variants.
-  - `maf_max=0.01` keeps variants with MAF ≤ 0.01, i.e. keeps **only** rare
-    variants below that cutoff (set `maf_min=None` if you just want this).
-  - Set both for a MAF range (e.g. `maf_min=0.001, maf_max=0.01` for a
-    rare-but-not-singleton band).
-  - Both are computed across the full sample set before any subsetting.
-  - PLINK inputs: implemented as `plink2 --export vcf-iid` (uncompressed
-    VCF, IID-only sample names), then `bgzip -f` and `tabix -f -p vcf` --
-    the same tools bcftools uses internally, and the confirmed-working
-    path for this setup. (An earlier version relied on plink2's own
-    internal `bgz` export + `bcftools index`, which crashed intermittently;
-    this replaces that.)
-  - VCF input: implemented as `bcftools view -q <maf_min>:minor` /
-    `-Q <maf_max>:minor`, run on the region-extracted VCF before any `-S`
-    sample subset, then indexed with `tabix -f -p vcf`.
-- If `sample_list` is given, it overrides `n_samples`. One VCF sample name
-  per line.
-- Sample IDs for `n_samples` are read directly from the VCF's `#CHROM`
-  header line via Python's stdlib `gzip` module -- no `bcftools query -l`
-  call, so this step doesn't depend on bcftools at all.
-
-## Stage 2 — `run_variant_annotation()`
-
-Runs ANNOVAR (`table_annovar.pl`) and VEP (`--plugin CADD`) on the Stage-1
-VCF, reduces each output to a fixed column set, merges them, and optionally
-merges in a Franklin export.
-
-```python
-from variant_annotation_pipeline import run_variant_annotation
-
-out_file = run_variant_annotation(
-    vcf_file=vcf,
-    gene="BLTP3A",
-    work_dir="data/wgs/merged/BLTP3A",
-    annovar_pl="/home/jupyter/annovar/table_annovar.pl",
-    annovar_db="/home/jupyter/annovar/humandb/",
-    vep_cache_dir="/home/jupyter/.vep/",
-    vep_plugin_dir="/home/jupyter/.vep/",
-    cadd_snv_file="/home/jupyter/.vep/CADD_v1.7_GRCh38/whole_genome_SNVs.tsv.gz",
-    cadd_indel_file="/home/jupyter/.vep/CADD_v1.7_GRCh38/gnomad.genomes.r4.0.indel.tsv.gz",
-    franklin_file="results/processed/wgs/annotation/BLTP3A_r12_franklin.txt",  # optional
-    out_dir="results/processed/wgs/annotation",   # optional -- defaults to work_dir
-    out_name="BLTP3A_final_annotation",           # optional -- defaults to <gene>_annotation_final
-)
-```
-
-`work_dir` is where the ANNOVAR/VEP intermediate files land
-(`{gene}.annovar.*`, `{gene}.VEP.vcf`). `out_dir`/`out_name` control only the
-**final** merged table, so you can keep intermediates in a scratch directory
-and send the finished table somewhere else — e.g. a shared results folder.
-Both are optional; if omitted, the final table is written to
-`{work_dir}/{gene}_annotation_final.txt` as before.
-
-### What it runs
-
-1. **ANNOVAR**: `table_annovar.pl` with
-   `refGene,cytoBand,exac03,avsnp147,dbnsfp47a,clinvar_20250721,gnomad41_genome`.
-2. **Column reduction (ANNOVAR)**: keeps the same column set as your original
-   `awk` script (Chr/Start/End/Ref/Alt, `Otherinfo6` → renamed **`Variants`**,
-   avsnp147, refGene fields, CLNSIG, CADD/EVE/AlphaMissense/SIFT/SIFT4G/
-   Polyphen2/REVEL scores, gnomad41_genome AFs, GTEx eQTL/sQTL, eQTLGen).
-3. **VEP**: same command you had, `--cache_version 114`, `--plugin CADD`,
-   `--everything`.
-4. **Column reduction (VEP)**: parses the `CSQ` INFO field using the field
-   order read directly from the VCF header (so it never breaks if VEP
-   version/flags change the column order). Keeps `Consequence`, `IMPACT`,
-   `SIFT`, `PolyPhen`, `CADD_PHRED`, `CADD_RAW`.
-   - **Transcript selection**: a variant can hit multiple transcripts. This
-     keeps the block flagged `CANONICAL=YES`; if none is flagged canonical,
-     it falls back to the first transcript block. If you'd rather keep
-     every transcript per variant (long format), say so and I'll add a
-     `canonical_only=False` mode.
-5. **Merge**: ANNOVAR-reduced ⋈ VEP-reduced on `Variants` (the VCF ID,
-   e.g. `chr6:34792087:C:T`) — a left join, so every ANNOVAR-annotated
-   variant is kept even if VEP's ID string doesn't match for some reason.
-6. **Franklin (optional)**: if `franklin_file` is given, its `Variants`
-   column is normalized (`chr` prefix stripped and re-added, matching your
-   original script) and merged in. Default join is **`left`** (keeps every
-   annotated variant, blank Franklin score if unmatched) — pass
-   `franklin_join="inner"` to only keep variants with a Franklin match
-   (matches the original script's behavior).
-7. **Output**: `{work_dir}/{gene}_annotation_final.txt`, tab-separated,
-   with a header row.
-
-Row counts at each step are printed to stdout so you can sanity-check drops
-at each merge, same as your original `print(df.shape[0])` calls.
-
-
-## Step 2 requirements
-
-- `plink1.9` available (absolute path recommended).
-- Python: `polars`.
-
-## Step 2 usage — Python
-
-```python
-from individual_level_pipeline import run_individual_level_pipeline
-
-result = run_individual_level_pipeline(
-    bfile_prefix="data/wgs/merged/BLTP3A/merged_release12_vwb_BLTP3A_updated",
-    gene="BLTP3A",
-    work_dir="data/wgs/merged/BLTP3A",
-    master_file="data/wgs/master_key_release12_final_vwb.csv",
-    master_keep_cols=[
-        "FID", "GP2ID", "wgs_label", "diagnosis", "GP2_phenotype_for_qc",
-        "biological_sex_for_qc", "age_at_sample_collection", "age_of_onset",
-        "age_at_diagnosis", "age_at_death", "age_at_last_follow_up",
-        "race_for_qc", "family_history_for_qc", "region_for_qc",
-    ],
-    master_id_rename={"GP2ID": "IID"},
-    master_filter_col="wgs",
-    master_filter_value=1,
-    label_col="wgs_label",
-    labels=["AAC", "AFR", "AJ", "AMR", "CAH", "CAS", "EAS", "EUR", "MDE", "SAS"],
-    annotation_file="results/processed/wgs/annotation/BLTP3A_final_annotation.txt",  # Step 1's output
-    plink19_path="/home/jupyter/plink1.9",   # pin the absolute path -- see Step 1's tool-path note
-
-    # optional: ancestry case-only MAF
-    compute_ancestry_maf=True,
-    ancestry_bfile_template="data/wgs/{label}/BLTP3A/{label}_release12_vwb_{gene}_updated",
-
-    # optional: double het
-    compute_double_het=True,
-
-    # optional: monogenic
-    add_monogenic=True,
-    monogenic_report_file="/home/jupyter/workspace/gp2_tier2_eu_release12/variant_report/GP2_release12_variant_report.csv",
-
-    # final output naming/location
-    out_dir="results/processed/wgs/annotation",
-    out_name="BLTP3A_carrier_info_combined",
-    variant_out_name="BLTP3A_variant_info",
-)
-
-print(result["combined_carrier_file"])   # final all-ancestry carrier file
-print(result.get("variant_info_file"))   # final all-ancestry variant file (if compute_ancestry_maf=True)
-```
-
-
-
-## Step 2 known assumption to confirm: double-het join direction
-
-`find_double_het()` replicates the original script's join order exactly:
-the double-het-individuals table is joined as the **left** side onto the
-full carrier table (`grouped.join(results, on="IID", how="left")`). This
-means the **output only contains rows for double-het individuals**
-(fanned out across each variant they carry) — not the full carrier table
-with a `doublet_het_status` column added and defaulting to "No"/"." for
-everyone else.
-
-If you actually want the latter (every carrier row preserved, with
-double-het status as an added column), the fix is to swap the join
-direction: `results.join(grouped, on="IID", how="left")` instead. I kept
-the original behavior since I wasn't sure which was intended — let me
-know if you want it swapped.
