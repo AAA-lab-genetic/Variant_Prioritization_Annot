@@ -308,6 +308,83 @@ make sure it has whatever columns `find_double_het()` needs
 (`gnomad41_genome_fafmax_faf95_max`, `Franklin` by default; both are
 overridable via `--double-het-freq-col`/`--double-het-pathogenicity-col`).
 
+## Input needed
+### Per-gene input data
+| File | Used by | Notes |
+|---|---|---|
+| `merged_release12_vwb_{gene}_updated.bed/.bim/.fam` | Step 1 (`--input-file`), Step 2 (`--bfile-prefix`) | full-cohort plink1 fileset for the gene region, all samples |
+| `{label}_release12_vwb_{gene}_updated.bed/.bim/.fam` (one set per ancestry label) | Step 2 optional ancestry-MAF step (`--ancestry-bfile-template`) | only needed if using `--compute-ancestry-maf` |
+
+### Reference/metadata files
+| File | Used by | Notes |
+|---|---|---|
+| `master_key_release12_final_vwb.csv` | Step 2 (`--master-file`) | sample metadata + ancestry label column; column names are configurable via `--master-keep-cols`/`--master-id-rename` |
+| `GP2_release12_variant_report.csv` | Step 2 optional (`--monogenic-report-file`) | only needed if using `--add-monogenic` |
+| `{gene}_r12_franklin.txt` | Step 1 optional (`--franklin-file`) | only needed if merging Franklin annotations |
+| `BLTP_fam_list.txt` (gene, chr, start, end) | not read directly by either script — your own driver loop over genes | needed if you're looping the pipeline across multiple genes |
+
+## Directory structure
+
+```
+BLTP_fam/                                  # WORK_DIR
+├── analysis/
+│   ├── variant_annotation_pipeline.py
+│   ├── individual_level_pipeline.py
+│   └── export_tool_versions.py
+│
+├── data/
+│   ├── BLTP_fam_list.txt                  # gene  chr  start  end  (your driver list, if looping genes)
+│   ├── wgs/
+│   │   ├── master_key_release12_final_vwb.csv
+│   │   ├── merged/
+│   │   │   └── {gene}/                    # e.g. BLTP3A/
+│   │   │       ├── merged_release12_vwb_{gene}_updated.bed/.bim/.fam        # INPUT (yours)
+│   │   │       ├── merged_release12_vwb_{gene}_updated_maf005.bed/.bim/.fam # INPUT (yours), alt. pre-MAF-filtered version
+│   │   │       │
+│   │   │       ├── {gene}_subset.vcf.gz(.tbi)            # Step 1 intermediate
+│   │   │       ├── {gene}.annovar.*                      # Step 1 intermediate (ANNOVAR outputs)
+│   │   │       ├── {gene}.VEP.vcf                         # Step 1 intermediate
+│   │   │       │
+│   │   │       ├── {gene}_updated.raw                     # Step 2 intermediate (plink1.9 recode)
+│   │   │       ├── {gene}_updated_{label}.raw              # Step 2 intermediate, per ancestry
+│   │   │       ├── {gene}_{label}_carrier_annot*.txt        # Step 2 intermediate, per ancestry
+│   │   │       │
+│   │   │       └── by_variant_type/                        # Step 2 optional split-by-function output
+│   │   │           └── {gene}_{label}_{func}.txt
+│   │   │
+│   │   └── {label}/                        # per-ancestry plink filesets, e.g. EUR/, AFR/, ...
+│   │       └── {gene}/
+│   │           ├── {label}_release12_vwb_{gene}_updated.bed/.bim/.fam       # INPUT (yours), for ancestry MAF
+│   │           ├── {label}_release12_vwb_{gene}_updated.case.raw            # Step 2 intermediate (case-only recode)
+│   │           └── {label}_release12_vwb_{gene}_var_counts.txt             # Step 2 intermediate (per-ancestry counts)
+│   │
+│   └── ... (other genes' subfolders, same pattern)
+│
+└── results/
+    └── processed/
+        └── wgs/
+            └── annotation/
+                ├── {gene}_r12_franklin.txt                      # INPUT (yours), optional
+                ├── {gene}_final_annotation.txt                   # Step 1 FINAL output
+                ├── {gene}_variant_info.txt                       # Step 2 FINAL output (variant-level, ancestry MAF merged in)
+                ├── {gene}_carrier_info_combined.txt              # Step 2 FINAL output (carrier-level, all ancestries)
+                └── tool_versions.md / tool_versions.json         # reproducibility record
+
+/home/jupyter/
+├── plink1.9                                 # binary, not on PATH
+├── annovar/
+│   ├── table_annovar.pl
+│   └── humandb/
+├── .vep/
+│   ├── (VEP cache, version 114)
+│   └── CADD_v1.7_GRCh38/
+│       ├── whole_genome_SNVs.tsv.gz
+│       └── gnomad.genomes.r4.0.indel.tsv.gz
+└── workspace/
+    └── gp2_tier2_eu_release12/
+        └── variant_report/
+            └── GP2_release12_variant_report.csv   # INPUT (yours), optional (monogenic)
+```
 
 
 # Pipeline Tool Versions
