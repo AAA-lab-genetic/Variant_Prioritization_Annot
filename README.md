@@ -1,6 +1,8 @@
 # Variant file annotation preparation pipeline (Step 1: Variant Annotation, Step 2: Individual-Level Carrier Analysis)
 
 Two-step pipeline for gene-level variant work:
+![Uploading annotation_flow.png…]()
+
 
 - **Step 1** (`variant_annotation_pipeline.py`) - Two stages variant-level annotation:
   ANNOVAR + VEP (with CADD), optionally merged with a Franklin export. One
