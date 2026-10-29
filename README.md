@@ -1,7 +1,8 @@
 # Variant file annotation preparation pipeline (Step 1: Variant Annotation, Step 2: Individual-Level Carrier Analysis)
 
 Two-step pipeline for gene-level variant work:
-![Uploading annotation_flow.png…]()
+
+<img width="4001" height="2250" alt="annotation_flow" src="https://github.com/user-attachments/assets/b19636ba-7f94-4b71-8eef-8a8bb5e00848" />
 
 
 - **Step 1** (`variant_annotation_pipeline.py`) - Two stages variant-level annotation:
